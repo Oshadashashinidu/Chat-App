@@ -1,9 +1,24 @@
 import { useState } from 'react';
+import type { AuthMode, AuthSession } from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000';
 
-function AuthPanel({ onAuthenticated }) {
-  const [mode, setMode] = useState('login');
+interface AuthPanelProps {
+  onAuthenticated: (authPayload: AuthSession) => void;
+}
+
+interface AuthFormState {
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : 'Something went wrong';
+
+function AuthPanel({ onAuthenticated }: AuthPanelProps) {
+  const [mode, setMode] = useState<AuthMode>('login');
   const [form, setForm] = useState({
     name: '',
     email: '',
@@ -14,11 +29,11 @@ function AuthPanel({ onAuthenticated }) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState('');
 
-  const onFieldChange = (field, value) => {
+  const onFieldChange = (field: keyof AuthFormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const switchMode = (nextMode) => {
+  const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode);
     setError('');
     setSuccess('');
@@ -36,7 +51,7 @@ function AuthPanel({ onAuthenticated }) {
       })
     });
 
-    const payload = await response.json();
+    const payload = await response.json() as { error?: string };
 
     if (!response.ok) {
       throw new Error(payload.error || 'Failed to create account');
@@ -56,7 +71,7 @@ function AuthPanel({ onAuthenticated }) {
       })
     });
 
-    const payload = await response.json();
+    const payload = await response.json() as AuthSession & { error?: string };
 
     if (!response.ok) {
       throw new Error(payload.error || 'Failed to login');
@@ -65,7 +80,7 @@ function AuthPanel({ onAuthenticated }) {
     onAuthenticated(payload);
   };
 
-  const onSubmit = async (event) => {
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
     setSuccess('');
@@ -78,7 +93,7 @@ function AuthPanel({ onAuthenticated }) {
         await handleLogin();
       }
     } catch (submitError) {
-      setError(submitError.message);
+      setError(getErrorMessage(submitError));
     } finally {
       setLoading(false);
     }

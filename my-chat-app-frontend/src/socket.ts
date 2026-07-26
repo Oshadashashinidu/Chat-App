@@ -5,7 +5,7 @@ const socket = io(API_BASE_URL, {
 	autoConnect: false
 });
 
-export const connectSocket = (token) => {
+export const connectSocket = (token: string) => {
 	socket.auth = { token };
 
 	if (!socket.connected) {

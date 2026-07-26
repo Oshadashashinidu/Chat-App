@@ -6,7 +6,10 @@ Backend service built with Node.js, Express, and Socket.io.
 
 1. Install dependencies:
    - `npm install`
-2. Start development server:
+2. Create environment file:
+   - Copy `.env.example` to `.env`
+   - Fill in your Supabase/Postgres database credentials
+3. Start development server:
    - `npm run dev`
-3. Open:
+4. Open:
    - `http://localhost:5000`

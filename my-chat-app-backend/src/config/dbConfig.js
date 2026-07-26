@@ -1,25 +1,33 @@
+const path = require('path');
 const { Pool } = require('pg');
+require('dotenv').config({ path: path.resolve(__dirname, '../../.env') });
 
-const defaultDbConfig = {
-  host: 'db.zyjiifacqovufuavaoef.supabase.co',
-  port: 5432,
-  database: 'postgres',
-  user: 'postgres',
-  password: 'g9MHrPqj61MfGygp',
-  ssl: true,
-  overrideEnv: true
+const getEnv = (dbKey, postgresKey) => process.env[dbKey] || process.env[postgresKey];
+
+const requiredDbEnvVars = [
+  ['DB_HOST', 'POSTGRES_HOST'],
+  ['DB_NAME', 'POSTGRES_DATABASE'],
+  ['DB_USER', 'POSTGRES_USER'],
+  ['DB_PASSWORD', 'POSTGRES_PASSWORD']
+];
+const missingDbEnvVars = requiredDbEnvVars.filter(([dbKey, postgresKey]) => !getEnv(dbKey, postgresKey));
+
+if (missingDbEnvVars.length > 0) {
+  throw new Error(
+    `Missing required database environment variables: ${missingDbEnvVars
+      .map(([dbKey, postgresKey]) => `${dbKey} or ${postgresKey}`)
+      .join(', ')}`
+  );
+}
+
+const dbConfig = {
+  host: getEnv('DB_HOST', 'POSTGRES_HOST'),
+  port: Number(getEnv('DB_PORT', 'POSTGRES_PORT') || 5432),
+  database: getEnv('DB_NAME', 'POSTGRES_DATABASE'),
+  user: getEnv('DB_USER', 'POSTGRES_USER'),
+  password: getEnv('DB_PASSWORD', 'POSTGRES_PASSWORD'),
+  ssl: getEnv('DB_SSL', 'POSTGRES_SSL') === 'true'
 };
-
-const dbConfig = defaultDbConfig.overrideEnv
-  ? defaultDbConfig
-  : {
-      host: process.env.DB_HOST,
-      port: Number(process.env.DB_PORT || 5432),
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      ssl: process.env.DB_SSL === 'true'
-    };
 
 const pool = new Pool({
   host: dbConfig.host,

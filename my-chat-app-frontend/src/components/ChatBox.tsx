@@ -1,30 +1,62 @@
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import socket, { connectSocket } from '../socket';
+import type {
+  ActiveTab,
+  ChatGroup,
+  Conversation,
+  GroupMessage,
+  IncomingPopup,
+  PrivateMessage,
+  PublicMessage,
+  SelectedChatType,
+  User
+} from '../types';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000';
 
-function ChatBox({ username, token, userId }) {
-  const [activeTab, setActiveTab] = useState('private');
-  const [messages, setMessages] = useState([]);
+interface ChatBoxProps {
+  username: string;
+  token: string;
+  userId: number;
+}
+
+type ChatListEntry =
+  | {
+      id: string;
+      isGroup: true;
+      group: ChatGroup;
+    }
+  | {
+      id: string;
+      isGroup: false;
+      user: Conversation;
+    };
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : 'Something went wrong';
+
+function ChatBox({ username, token, userId }: ChatBoxProps) {
+  const [activeTab, setActiveTab] = useState<ActiveTab>('private');
+  const [messages, setMessages] = useState<PublicMessage[]>([]);
   const [text, setText] = useState('');
   const [search, setSearch] = useState('');
-  const [users, setUsers] = useState([]);
-  const [conversations, setConversations] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [selectedUser, setSelectedUser] = useState<Conversation | null>(null);
   const [privateText, setPrivateText] = useState('');
-  const [privateThreads, setPrivateThreads] = useState({});
-  const [unreadCounts, setUnreadCounts] = useState({});
-  const [groupUnreadCounts, setGroupUnreadCounts] = useState({});
-  const [incomingPopup, setIncomingPopup] = useState(null);
+  const [privateThreads, setPrivateThreads] = useState<Record<string, PrivateMessage[]>>({});
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [groupUnreadCounts, setGroupUnreadCounts] = useState<Record<string, number>>({});
+  const [incomingPopup, setIncomingPopup] = useState<IncomingPopup | null>(null);
   const [searchError, setSearchError] = useState('');
-  const [groups, setGroups] = useState([]);
-  const [selectedGroup, setSelectedGroup] = useState(null);
-  const [groupMessagesById, setGroupMessagesById] = useState({});
+  const [groups, setGroups] = useState<ChatGroup[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<ChatGroup | null>(null);
+  const [groupMessagesById, setGroupMessagesById] = useState<Record<string, GroupMessage[]>>({});
   const [groupText, setGroupText] = useState('');
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
-  const [groupMembers, setGroupMembers] = useState([]);
-  const [selectedChatType, setSelectedChatType] = useState('private');
+  const [groupMembers, setGroupMembers] = useState<number[]>([]);
+  const [selectedChatType, setSelectedChatType] = useState<SelectedChatType>('private');
 
   const loadUsersForGroup = async () => {
     try {
@@ -34,18 +66,18 @@ function ChatBox({ username, token, userId }) {
         }
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { users?: User[]; error?: string };
       if (!response.ok) {
         throw new Error(payload.error || 'Failed to load users');
       }
 
       setUsers(payload.users || []);
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
-  const upsertConversation = (user, lastMessage, lastMessageAt) => {
+  const upsertConversation = (user: Conversation, lastMessage: string, lastMessageAt: string) => {
     setConversations((prev) => {
       const existing = prev.filter((item) => String(item.id) !== String(user.id));
       return [
@@ -69,7 +101,7 @@ function ChatBox({ username, token, userId }) {
         }
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { conversations?: Conversation[]; error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error || 'Failed to load conversations');
@@ -77,7 +109,7 @@ function ChatBox({ username, token, userId }) {
 
       setConversations(payload.conversations || []);
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
@@ -89,7 +121,7 @@ function ChatBox({ username, token, userId }) {
         }
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { groups?: ChatGroup[]; error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error || 'Failed to load groups');
@@ -97,7 +129,7 @@ function ChatBox({ username, token, userId }) {
 
       setGroups(payload.groups || []);
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
@@ -109,17 +141,15 @@ function ChatBox({ username, token, userId }) {
   useEffect(() => {
     connectSocket(token);
 
-    socket.on('chat:history', (history) => setMessages(history));
-    socket.on('chat:message', (message) => {
+    socket.on('chat:history', (history: PublicMessage[]) => setMessages(history));
+    socket.on('chat:message', (message: PublicMessage) => {
       setMessages((prev) => [...prev, message]);
     });
 
-    socket.on('private:message', (message) => {
+    socket.on('private:message', (message: PrivateMessage) => {
       const currentUserId = String(userId);
       const otherUserId =
-        String(message.fromUserId) === currentUserId
-          ? String(message.toUserId)
-          : String(message.fromUserId);
+        String(message.fromUserId) === currentUserId ? String(message.toUserId) : String(message.fromUserId);
 
       setPrivateThreads((prev) => ({
         ...prev,
@@ -127,7 +157,7 @@ function ChatBox({ username, token, userId }) {
       }));
 
       const isMine = String(message.fromUserId) === currentUserId;
-      const conversationUser = {
+      const conversationUser: Conversation = {
         id: Number(otherUserId),
         name: isMine ? message.toUserName || selectedUser?.name || 'User' : message.fromUserName,
         email: ''
@@ -155,7 +185,7 @@ function ChatBox({ username, token, userId }) {
       }
     });
 
-    socket.on('group:message', (message) => {
+    socket.on('group:message', (message: GroupMessage) => {
       const groupId = String(message.groupId);
 
       setGroupMessagesById((prev) => ({
@@ -185,7 +215,7 @@ function ChatBox({ username, token, userId }) {
     };
   }, [token, userId, selectedUser, selectedGroup, activeTab, selectedChatType]);
 
-  const sendMessage = (event) => {
+  const sendMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!text.trim()) {
@@ -200,7 +230,7 @@ function ChatBox({ username, token, userId }) {
     setText('');
   };
 
-  const searchUsers = async (event) => {
+  const searchUsers = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSearchError('');
 
@@ -211,7 +241,7 @@ function ChatBox({ username, token, userId }) {
         }
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { users?: User[]; error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error || 'User search failed');
@@ -219,11 +249,11 @@ function ChatBox({ username, token, userId }) {
 
       setUsers(payload.users || []);
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
-  const openPrivateChat = async (user) => {
+  const openPrivateChat = async (user: Conversation) => {
     setSelectedUser(user);
     setSelectedGroup(null);
     setSelectedChatType('private');
@@ -240,7 +270,7 @@ function ChatBox({ username, token, userId }) {
         }
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { messages?: PrivateMessage[]; error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error || 'Failed to load private thread');
@@ -254,11 +284,11 @@ function ChatBox({ username, token, userId }) {
       const last = (payload.messages || []).slice(-1)[0];
       upsertConversation(user, last?.text || '', last?.timestamp || new Date().toISOString());
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
-  const sendPrivateMessage = (event) => {
+  const sendPrivateMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!selectedUser || !privateText.trim()) {
@@ -275,13 +305,13 @@ function ChatBox({ username, token, userId }) {
     setPrivateText('');
   };
 
-  const toggleGroupMember = (memberId) => {
+  const toggleGroupMember = (memberId: number) => {
     setGroupMembers((prev) =>
       prev.includes(memberId) ? prev.filter((id) => id !== memberId) : [...prev, memberId]
     );
   };
 
-  const createGroup = async (event) => {
+  const createGroup = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!groupName.trim() || groupMembers.length === 0) {
@@ -302,24 +332,24 @@ function ChatBox({ username, token, userId }) {
         })
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { group?: ChatGroup; error?: string };
 
-      if (!response.ok) {
+      if (!response.ok || !payload.group) {
         throw new Error(payload.error || 'Failed to create group');
       }
 
-      setGroups((prev) => [payload.group, ...prev]);
+      setGroups((prev) => [payload.group as ChatGroup, ...prev]);
       setGroupName('');
       setGroupMembers([]);
       setShowCreateGroup(false);
       setSearchError('');
       loadGroups();
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
-  const openGroupChat = async (group) => {
+  const openGroupChat = async (group: ChatGroup) => {
     setSelectedGroup(group);
     setSelectedUser(null);
     setSelectedChatType('group');
@@ -335,7 +365,7 @@ function ChatBox({ username, token, userId }) {
         }
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as { messages?: GroupMessage[]; error?: string };
 
       if (!response.ok) {
         throw new Error(payload.error || 'Failed to load group messages');
@@ -346,11 +376,11 @@ function ChatBox({ username, token, userId }) {
         [String(group.id)]: payload.messages || []
       }));
     } catch (error) {
-      setSearchError(error.message);
+      setSearchError(getErrorMessage(error));
     }
   };
 
-  const sendGroupMessage = (event) => {
+  const sendGroupMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!selectedGroup || !groupText.trim()) {
@@ -368,16 +398,16 @@ function ChatBox({ username, token, userId }) {
   const currentPrivateMessages = selectedUser ? privateThreads[String(selectedUser.id)] || [] : [];
   const currentGroupMessages = selectedGroup ? groupMessagesById[String(selectedGroup.id)] || [] : [];
 
-  const privateUsers = search.trim() ? users : conversations;
-  const privateList = [
+  const privateUsers: Conversation[] = search.trim() ? users : conversations;
+  const privateList: ChatListEntry[] = [
     ...groups.map((group) => ({
       id: `group-${group.id}`,
-      isGroup: true,
+      isGroup: true as const,
       group
     })),
     ...privateUsers.map((user) => ({
       id: `user-${user.id}`,
-      isGroup: false,
+      isGroup: false as const,
       user
     }))
   ];
@@ -505,81 +535,78 @@ function ChatBox({ username, token, userId }) {
             </aside>
 
             <div className="chat-conversation">
-            <div className="chat-title">
-              {selectedChatType === 'group' && selectedGroup ? (
-                <>
-                  <h3>{selectedGroup.name}</h3>
-                  <p>Group chat (members only)</p>
-                  <p>
-                    Members:{' '}
-                    {(selectedGroup.members || [])
-                      .map((member) => member.name)
-                      .join(', ') || 'No members'}
-                  </p>
-                </>
-              ) : selectedUser ? (
-                <>
-                  <h3>{selectedUser.name}</h3>
-                  <p>Private conversation</p>
-                </>
+              <div className="chat-title">
+                {selectedChatType === 'group' && selectedGroup ? (
+                  <>
+                    <h3>{selectedGroup.name}</h3>
+                    <p>Group chat (members only)</p>
+                    <p>
+                      Members:{' '}
+                      {(selectedGroup.members || []).map((member) => member.name).join(', ') || 'No members'}
+                    </p>
+                  </>
+                ) : selectedUser ? (
+                  <>
+                    <h3>{selectedUser.name}</h3>
+                    <p>Private conversation</p>
+                  </>
+                ) : (
+                  <>
+                    <h3>Private Chat</h3>
+                    <p>Select a user from the left list</p>
+                  </>
+                )}
+              </div>
+
+              <ul className="messages-list dark">
+                {selectedChatType === 'group' && selectedGroup
+                  ? currentGroupMessages.map((message) => {
+                      const isMine = Number(message.senderId) === Number(userId);
+                      return (
+                        <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
+                          <strong>{message.senderName}</strong>
+                          <span>{message.text}</span>
+                        </li>
+                      );
+                    })
+                  : currentPrivateMessages.map((message) => {
+                      const isMine = String(message.fromUserId) === String(userId);
+                      return (
+                        <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
+                          <span>{message.text}</span>
+                        </li>
+                      );
+                    })}
+              </ul>
+
+              {selectedChatType === 'group' ? (
+                <form onSubmit={sendGroupMessage} className="chat-form dark">
+                  <input
+                    value={groupText}
+                    onChange={(event) => setGroupText(event.target.value)}
+                    placeholder={selectedGroup ? 'Type group message' : 'Select a group first'}
+                    disabled={!selectedGroup}
+                  />
+                  <button type="submit" disabled={!selectedGroup}>
+                    Send
+                  </button>
+                </form>
               ) : (
-                <>
-                  <h3>Private Chat</h3>
-                  <p>Select a user from the left list</p>
-                </>
+                <form onSubmit={sendPrivateMessage} className="chat-form dark">
+                  <input
+                    value={privateText}
+                    onChange={(event) => setPrivateText(event.target.value)}
+                    placeholder={selectedUser ? 'Type a private message' : 'Select a user first'}
+                    disabled={!selectedUser}
+                  />
+                  <button type="submit" disabled={!selectedUser}>
+                    Send
+                  </button>
+                </form>
               )}
             </div>
-
-            <ul className="messages-list dark">
-              {selectedChatType === 'group' && selectedGroup
-                ? currentGroupMessages.map((message) => {
-                    const isMine = Number(message.senderId) === Number(userId);
-                    return (
-                      <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
-                        <strong>{message.senderName}</strong>
-                        <span>{message.text}</span>
-                      </li>
-                    );
-                  })
-                : currentPrivateMessages.map((message) => {
-                    const isMine = String(message.fromUserId) === String(userId);
-                    return (
-                      <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
-                        <span>{message.text}</span>
-                      </li>
-                    );
-                  })}
-            </ul>
-
-            {selectedChatType === 'group' ? (
-              <form onSubmit={sendGroupMessage} className="chat-form dark">
-                <input
-                  value={groupText}
-                  onChange={(event) => setGroupText(event.target.value)}
-                  placeholder={selectedGroup ? 'Type group message' : 'Select a group first'}
-                  disabled={!selectedGroup}
-                />
-                <button type="submit" disabled={!selectedGroup}>
-                  Send
-                </button>
-              </form>
-            ) : (
-              <form onSubmit={sendPrivateMessage} className="chat-form dark">
-                <input
-                  value={privateText}
-                  onChange={(event) => setPrivateText(event.target.value)}
-                  placeholder={selectedUser ? 'Type a private message' : 'Select a user first'}
-                  disabled={!selectedUser}
-                />
-                <button type="submit" disabled={!selectedUser}>
-                  Send
-                </button>
-              </form>
-            )}
-            </div>
           </div>
-        ) : (
-          activeTab === 'public' ? (
+        ) : activeTab === 'public' ? (
           <>
             <div className="chat-title">
               <h3>Public Chat Room</h3>
@@ -599,16 +626,11 @@ function ChatBox({ username, token, userId }) {
             </ul>
 
             <form onSubmit={sendMessage} className="chat-form dark">
-              <input
-                value={text}
-                onChange={(event) => setText(event.target.value)}
-                placeholder="Type a public message"
-              />
+              <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Type a public message" />
               <button type="submit">Send</button>
             </form>
           </>
-          ) : null
-        )}
+        ) : null}
       </section>
     </div>
   );

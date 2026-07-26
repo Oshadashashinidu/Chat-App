@@ -2,17 +2,18 @@ import { useMemo, useState } from 'react';
 import ChatBox from './components/ChatBox';
 import AuthPanel from './components/AuthPanel';
 import { disconnectSocket } from './socket';
+import type { AuthSession } from './types';
 import './App.css';
 
 function App() {
-  const [session, setSession] = useState(() => {
+  const [session, setSession] = useState<AuthSession | null>(() => {
     const raw = localStorage.getItem('chat-auth-session');
-    return raw ? JSON.parse(raw) : null;
+    return raw ? (JSON.parse(raw) as AuthSession) : null;
   });
 
   const username = useMemo(() => session?.user?.name || 'Anonymous', [session]);
 
-  const handleAuthenticated = (authPayload) => {
+  const handleAuthenticated = (authPayload: AuthSession) => {
     localStorage.setItem('chat-auth-session', JSON.stringify(authPayload));
     setSession(authPayload);
   };
