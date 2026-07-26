@@ -11,6 +11,7 @@ import type {
   SelectedChatType,
   User
 } from '../types';
+import formatDate from '../utils/formatDate';
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:3000';
 
@@ -34,6 +35,14 @@ type ChatListEntry =
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : 'Something went wrong';
+
+const getInitials = (name: string): string =>
+  name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'U';
 
 function ChatBox({ username, token, userId }: ChatBoxProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('private');
@@ -397,7 +406,6 @@ function ChatBox({ username, token, userId }: ChatBoxProps) {
 
   const currentPrivateMessages = selectedUser ? privateThreads[String(selectedUser.id)] || [] : [];
   const currentGroupMessages = selectedGroup ? groupMessagesById[String(selectedGroup.id)] || [] : [];
-
   const privateUsers: Conversation[] = search.trim() ? users : conversations;
   const privateList: ChatListEntry[] = [
     ...groups.map((group) => ({
@@ -411,19 +419,32 @@ function ChatBox({ username, token, userId }: ChatBoxProps) {
       user
     }))
   ];
+  const selectedTitle =
+    selectedChatType === 'group' && selectedGroup ? selectedGroup.name : selectedUser ? selectedUser.name : 'Select a chat';
+  const selectedSubtitle =
+    selectedChatType === 'group' && selectedGroup
+      ? 'Group chat (members only)'
+      : selectedUser
+      ? 'Private conversation'
+      : activeTab === 'public'
+      ? 'Visible to all connected users'
+      : 'Choose a conversation from the left';
 
   return (
     <div className="chat-shell">
       {incomingPopup && (
-        <div className="incoming-popup">
+        <div className="incoming-popup" role="status">
           <strong>{incomingPopup.fromUserName}</strong>
           <span>{incomingPopup.text}</span>
         </div>
       )}
 
-      <section className="chat-main chat-main-full">
-        <div className="chat-topbar tabs-only">
-          <div className="chat-tabs">
+      <aside className="chat-left-section" aria-label="Chat navigation and conversations">
+        <div className="chat-rail">
+          <div className="chat-brand" aria-label="Chat app">
+            C
+          </div>
+          <div className="chat-tabs" role="tablist" aria-label="Chat sections">
             <button
               type="button"
               className={activeTab === 'private' ? 'active' : ''}
@@ -441,123 +462,131 @@ function ChatBox({ username, token, userId }: ChatBoxProps) {
           </div>
         </div>
 
+        <section className="chat-sidebar" aria-label="Conversations">
+          <div className="messages-header">
+            <div>
+              <h2>Messages</h2>
+              <p>{activeTab === 'private' ? 'Private and group chats' : 'Public room selected'}</p>
+            </div>
+            <button
+              type="button"
+              className="create-group-btn"
+              onClick={() => {
+                setShowCreateGroup((prev) => !prev);
+                loadUsersForGroup();
+              }}
+            >
+              Create Group
+            </button>
+          </div>
+
+          <form onSubmit={searchUsers} className="search-form dark">
+            <label className="sr-only" htmlFor="chat-user-search">
+              Search user by name
+            </label>
+            <input
+              id="chat-user-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search user by name"
+            />
+            <button type="submit">Search</button>
+          </form>
+
+          {showCreateGroup && (
+            <form onSubmit={createGroup} className="create-group-form">
+              <label className="sr-only" htmlFor="chat-group-name">
+                Group name
+              </label>
+              <input
+                id="chat-group-name"
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                placeholder="Group name"
+              />
+              <p>Select members</p>
+              <div className="group-members-list">
+                {users.map((user) => (
+                  <label key={user.id}>
+                    <input
+                      type="checkbox"
+                      checked={groupMembers.includes(user.id)}
+                      onChange={() => toggleGroupMember(user.id)}
+                    />
+                    <span>{user.name}</span>
+                  </label>
+                ))}
+              </div>
+              <button type="submit">Create</button>
+            </form>
+          )}
+
+          {searchError && <p className="auth-error">{searchError}</p>}
+
+          <ul className="users-list dark" aria-label="Conversation list">
+            {privateList.map((entry) => {
+              if (entry.isGroup) {
+                const group = entry.group;
+                const unreadCount = groupUnreadCounts[String(group.id)] || 0;
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      className={selectedGroup?.id === group.id ? 'active' : ''}
+                      onClick={() => openGroupChat(group)}
+                    >
+                      <span className="conversation-avatar">{getInitials(group.name)}</span>
+                      <span className="conversation-copy">
+                        <span className="conversation-name">{group.name}</span>
+                        <small>{(group.members || []).length} members</small>
+                      </span>
+                      {unreadCount > 0 && <em className="unread-badge">{unreadCount}</em>}
+                    </button>
+                  </li>
+                );
+              }
+
+              const user = entry.user;
+              const unreadCount = unreadCounts[String(user.id)] || 0;
+              return (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    className={selectedUser?.id === user.id ? 'active' : ''}
+                    onClick={() => openPrivateChat(user)}
+                  >
+                    <span className="conversation-avatar">{getInitials(user.name)}</span>
+                    <span className="conversation-copy">
+                      <span className="conversation-name">{user.name}</span>
+                      <small>{search.trim() ? user.email : user.lastMessage || user.email}</small>
+                    </span>
+                    {user.lastMessageAt && <time>{formatDate(user.lastMessageAt)}</time>}
+                    {unreadCount > 0 && <em className="unread-badge">{unreadCount}</em>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      </aside>
+
+      <main className="chat-conversation" aria-label="Active chat">
+        <header className="chat-title">
+          <div className="active-chat-avatar">{getInitials(selectedTitle)}</div>
+          <div>
+            <h3>{activeTab === 'public' ? 'Public Chat Room' : selectedTitle}</h3>
+            <p>{activeTab === 'public' ? 'Visible to all connected users' : selectedSubtitle}</p>
+          </div>
+        </header>
+
         {activeTab === 'private' ? (
-          <div className="private-layout">
-            <aside className="chat-sidebar">
-              <div className="messages-header">
-                <h2>Messages</h2>
-                <button
-                  type="button"
-                  className="create-group-btn"
-                  onClick={() => {
-                    setShowCreateGroup((prev) => !prev);
-                    loadUsersForGroup();
-                  }}
-                >
-                  Create Group
-                </button>
+          <>
+            {!selectedUser && !selectedGroup ? (
+              <div className="chat-empty-state">
+                <h4>Select a conversation</h4>
+                <p>Choose a private conversation or group from the left panel to view messages.</p>
               </div>
-
-              <form onSubmit={searchUsers} className="search-form dark">
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Search user by name"
-                />
-                <button type="submit">Search</button>
-              </form>
-
-              {showCreateGroup && (
-                <form onSubmit={createGroup} className="create-group-form">
-                  <input
-                    value={groupName}
-                    onChange={(event) => setGroupName(event.target.value)}
-                    placeholder="Group name"
-                  />
-                  <p>Select members</p>
-                  <div className="group-members-list">
-                    {users.map((user) => (
-                      <label key={user.id}>
-                        <input
-                          type="checkbox"
-                          checked={groupMembers.includes(user.id)}
-                          onChange={() => toggleGroupMember(user.id)}
-                        />
-                        <span>{user.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                  <button type="submit">Create</button>
-                </form>
-              )}
-
-              {searchError && <p className="auth-error">{searchError}</p>}
-
-              <ul className="users-list dark">
-                {privateList.map((entry) => {
-                  if (entry.isGroup) {
-                    const group = entry.group;
-                    return (
-                      <li key={entry.id}>
-                        <button
-                          type="button"
-                          className={selectedGroup?.id === group.id ? 'active' : ''}
-                          onClick={() => openGroupChat(group)}
-                        >
-                          <span>{group.name}</span>
-                          <small>{(group.members || []).length} members</small>
-                          {(groupUnreadCounts[String(group.id)] || 0) > 0 && (
-                            <em className="unread-badge">{groupUnreadCounts[String(group.id)]}</em>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  }
-
-                  const user = entry.user;
-                  return (
-                    <li key={entry.id}>
-                      <button
-                        type="button"
-                        className={selectedUser?.id === user.id ? 'active' : ''}
-                        onClick={() => openPrivateChat(user)}
-                      >
-                        <span>{user.name}</span>
-                        <small>{search.trim() ? user.email : user.lastMessage || user.email}</small>
-                        {(unreadCounts[String(user.id)] || 0) > 0 && (
-                          <em className="unread-badge">{unreadCounts[String(user.id)]}</em>
-                        )}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            </aside>
-
-            <div className="chat-conversation">
-              <div className="chat-title">
-                {selectedChatType === 'group' && selectedGroup ? (
-                  <>
-                    <h3>{selectedGroup.name}</h3>
-                    <p>Group chat (members only)</p>
-                    <p>
-                      Members:{' '}
-                      {(selectedGroup.members || []).map((member) => member.name).join(', ') || 'No members'}
-                    </p>
-                  </>
-                ) : selectedUser ? (
-                  <>
-                    <h3>{selectedUser.name}</h3>
-                    <p>Private conversation</p>
-                  </>
-                ) : (
-                  <>
-                    <h3>Private Chat</h3>
-                    <p>Select a user from the left list</p>
-                  </>
-                )}
-              </div>
-
+            ) : (
               <ul className="messages-list dark">
                 {selectedChatType === 'group' && selectedGroup
                   ? currentGroupMessages.map((message) => {
@@ -566,6 +595,7 @@ function ChatBox({ username, token, userId }: ChatBoxProps) {
                         <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
                           <strong>{message.senderName}</strong>
                           <span>{message.text}</span>
+                          {message.timestamp && <time>{formatDate(message.timestamp)}</time>}
                         </li>
                       );
                     })
@@ -573,46 +603,51 @@ function ChatBox({ username, token, userId }: ChatBoxProps) {
                       const isMine = String(message.fromUserId) === String(userId);
                       return (
                         <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
+                          {!isMine && <strong>{message.fromUserName}</strong>}
                           <span>{message.text}</span>
+                          {message.timestamp && <time>{formatDate(message.timestamp)}</time>}
                         </li>
                       );
                     })}
               </ul>
+            )}
 
-              {selectedChatType === 'group' ? (
-                <form onSubmit={sendGroupMessage} className="chat-form dark">
-                  <input
-                    value={groupText}
-                    onChange={(event) => setGroupText(event.target.value)}
-                    placeholder={selectedGroup ? 'Type group message' : 'Select a group first'}
-                    disabled={!selectedGroup}
-                  />
-                  <button type="submit" disabled={!selectedGroup}>
-                    Send
-                  </button>
-                </form>
-              ) : (
-                <form onSubmit={sendPrivateMessage} className="chat-form dark">
-                  <input
-                    value={privateText}
-                    onChange={(event) => setPrivateText(event.target.value)}
-                    placeholder={selectedUser ? 'Type a private message' : 'Select a user first'}
-                    disabled={!selectedUser}
-                  />
-                  <button type="submit" disabled={!selectedUser}>
-                    Send
-                  </button>
-                </form>
-              )}
-            </div>
-          </div>
-        ) : activeTab === 'public' ? (
+            {selectedChatType === 'group' ? (
+              <form onSubmit={sendGroupMessage} className="chat-form dark">
+                <label className="sr-only" htmlFor="group-message-input">
+                  Group message
+                </label>
+                <input
+                  id="group-message-input"
+                  value={groupText}
+                  onChange={(event) => setGroupText(event.target.value)}
+                  placeholder={selectedGroup ? 'Type group message' : 'Select a group first'}
+                  disabled={!selectedGroup}
+                />
+                <button type="submit" disabled={!selectedGroup}>
+                  Send
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={sendPrivateMessage} className="chat-form dark">
+                <label className="sr-only" htmlFor="private-message-input">
+                  Private message
+                </label>
+                <input
+                  id="private-message-input"
+                  value={privateText}
+                  onChange={(event) => setPrivateText(event.target.value)}
+                  placeholder={selectedUser ? 'Type a private message' : 'Select a user first'}
+                  disabled={!selectedUser}
+                />
+                <button type="submit" disabled={!selectedUser}>
+                  Send
+                </button>
+              </form>
+            )}
+          </>
+        ) : (
           <>
-            <div className="chat-title">
-              <h3>Public Chat Room</h3>
-              <p>Visible to all connected users</p>
-            </div>
-
             <ul className="messages-list dark">
               {messages.map((message) => {
                 const isMine = message.user === username;
@@ -620,18 +655,28 @@ function ChatBox({ username, token, userId }: ChatBoxProps) {
                   <li key={`${message.id}-${message.timestamp}`} className={isMine ? 'mine' : 'theirs'}>
                     <strong>{message.user}</strong>
                     <span>{message.text}</span>
+                    {message.timestamp && <time>{formatDate(message.timestamp)}</time>}
                   </li>
                 );
               })}
             </ul>
 
             <form onSubmit={sendMessage} className="chat-form dark">
-              <input value={text} onChange={(event) => setText(event.target.value)} placeholder="Type a public message" />
+              <label className="sr-only" htmlFor="public-message-input">
+                Public message
+              </label>
+              <input
+                id="public-message-input"
+                value={text}
+                onChange={(event) => setText(event.target.value)}
+                placeholder="Type a public message"
+              />
               <button type="submit">Send</button>
             </form>
           </>
-        ) : null}
-      </section>
+        )}
+      </main>
+
     </div>
   );
 }

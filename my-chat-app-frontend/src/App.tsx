@@ -30,8 +30,9 @@ function App() {
       {!session ? (
         <AuthPanel onAuthenticated={handleAuthenticated} />
       ) : (
-        <>
+        <div className="signed-chat-layout">
           <div className="session-bar">
+            <div className="session-avatar">{username.charAt(0).toUpperCase()}</div>
             <p>
               Signed in as <strong>{username}</strong>
             </p>
@@ -40,7 +41,7 @@ function App() {
             </button>
           </div>
           <ChatBox username={username} token={session.token} userId={session.user.id} />
-        </>
+        </div>
       )}
     </div>
   );
